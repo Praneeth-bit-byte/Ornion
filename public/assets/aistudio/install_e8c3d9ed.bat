@@ -1,13 +1,15 @@
 @echo off
 REM ==============================================================================
-REM  JARVIS AI PERSONAL ASSISTANT - 1-CLICK WINDOWS SETUP SCRIPT
+REM  ORNION — PERSONAL AI ASSISTANT - 1-CLICK WINDOWS SETUP SCRIPT
+REM  Created and developed by Praneeth Thota
 REM ==============================================================================
 
 setlocal enabledelayedexpansion
 
 echo.
 echo ==================================================================
-echo           WELCOME TO JARVIS AI ASSISTANT SETUP
+echo                 ORNION SETUP — PERSONAL AI ASSISTANT
+echo               Created and developed by Praneeth Thota
 echo ==================================================================
 echo.
 
@@ -84,34 +86,33 @@ echo [*] Installing audio packages (pyttsx3, pyaudio)...
 pip install pyttsx3
 pip install pyaudio 2>nul
 if %errorlevel% neq 0 (
-    echo [!] Note: pyaudio may need manual installation on Windows
-    echo [!] If audio doesn't work, visit: https://www.lfd.uci.edu/~gohlke/pythonlibs/
-    echo [!] Download pyaudio wheel and run: pip install [filename].whl
+    echo [!] Note: pyaudio may need a prebuilt wheel on some Windows Python versions.
+    echo [!] If microphone input is unavailable, ORNION automatically runs in interactive console text mode.
 )
 echo.
 
 REM Setup complete
 echo.
 echo ==================================================================
-echo [+] JARVIS SETUP COMPLETED SUCCESSFULLY!
+echo [+] ORNION SETUP COMPLETED SUCCESSFULLY!
 echo ==================================================================
 echo.
 echo NEXT STEPS:
 echo.
-echo 1. Get your FREE Groq API key:
+echo 1. Optional: Get a free Groq API key:
 echo    Visit: https://console.groq.com/keys
 echo.
-echo 2. To start Jarvis, run these commands:
+echo 2. To start ORNION at any time, run:
 echo    .venv\Scripts\activate.bat
 echo    python jarvis_voice.py
 echo.
-echo 3. The first time, Jarvis will ask for your Groq API key
-echo    (You can skip it and use offline mode)
+echo 3. Open the ORNION Neural Interface HUD in your browser:
+echo    http://127.0.0.1:8765
 echo.
 pause
 
-REM Start Jarvis
+REM Start ORNION
 echo.
-echo [*] Starting Jarvis AI Assistant...
+echo [*] Starting ORNION — Personal AI Assistant...
 echo.
 python jarvis_voice.py

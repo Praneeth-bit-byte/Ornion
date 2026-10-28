@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Jarvis AI Personal Assistant - Setup Guide</title>
+<title>ORNION — Installation and User Guide</title>
 <style>
   @page {
     size: A4;
@@ -136,7 +136,7 @@
     padding-top: 10px;
     text-align: center;
     font-size: 11px;
-    color: #94a3b8;
+    color: #64748b;
   }
 </style>
 </head>
@@ -144,48 +144,49 @@
 
 <div class="header">
   <div class="title-group">
-    <h1>⚡ JARVIS AI PERSONAL ASSISTANT</h1>
-    <p>Complete Step-by-Step Installation & Configuration Guide for Any Laptop</p>
+    <h1>⚡ ORNION — PERSONAL AI ASSISTANT</h1>
+    <p>ORNION — Installation and User Guide · Created and developed by Praneeth Thota</p>
   </div>
-  <div class="badge">Version 2.0 (Executive)</div>
+  <div class="badge">ORNION Neural Interface</div>
 </div>
 
 <div class="highlight-box">
-  <strong>What is Jarvis?</strong> A fully automated, voice-controlled executive assistant that runs locally on your laptop. Features instant voice app launching, YouTube controls, WhatsApp automated replies, email briefing, real-time stock market Buy/Sell analysis, and an Iron Man 3D holographic workspace HUD.
+  <strong>What is ORNION?</strong> A voice-and-text-controlled Personal AI Assistant and Automation Platform created and developed by <strong>Praneeth Thota</strong>. Features desktop application launching, YouTube & Google search automation, WhatsApp Web message drafting, unread email briefings, real-time stock market technical analysis (SMA Buy/Sell signals), and the 3D <strong>ORNION Neural Interface HUD</strong>.
 </div>
 
 <h2>1. Prerequisites</h2>
 <ul>
-  <li><strong>Operating System:</strong> macOS (MacBook / iMac), Windows 10/11, or Linux.</li>
+  <li><strong>Operating System:</strong> Windows 10/11 (Primary Development Environment), macOS, or Linux.</li>
   <li><strong>Python:</strong> Python 3.10 or newer (download from <a href="https://python.org">python.org</a>).</li>
-  <li><strong>Free Groq API Key:</strong> Free high-speed AI key from <a href="https://console.groq.com/keys">console.groq.com/keys</a>.</li>
+  <li><strong>Optional Groq API Key:</strong> Free cloud LLM API key from <a href="https://console.groq.com/keys">console.groq.com/keys</a>.</li>
 </ul>
 
-<h2>2. 1-Minute Installation (Step-by-Step)</h2>
+<h2>2. Step-by-Step Installation</h2>
 
 <div class="step">
-  <span class="step-num">1</span> <strong>Extract the Package:</strong>
-  Unzip <code>Jarvis_Setup_Package.zip</code> into a folder on your Desktop or Home directory.
+  <span class="step-num">1</span> <strong>Prepare the Project Folder:</strong>
+  Open the ORNION project directory on your computer.
 </div>
 
 <div class="step">
-  <span class="step-num">2</span> <strong>Run the Automated Installer:</strong>
-  <p><strong>On macOS / Linux:</strong> Open your Terminal, navigate to the folder, and run:</p>
-  <pre>chmod +x install.sh
-./install.sh</pre>
+  <span class="step-num">2</span> <strong>Run the Automated Setup Script ("ORNION Setup"):</strong>
   <p><strong>On Windows:</strong> Double-click <code>install.bat</code> or run in Command Prompt:</p>
   <pre>install.bat</pre>
+  <p><strong>On macOS / Linux:</strong> Open your Terminal in the project folder and run:</p>
+  <pre>chmod +x install.sh
+./install.sh</pre>
 </div>
 
 <div class="step">
-  <span class="step-num">3</span> <strong>Enter Your Free Groq API Key:</strong>
-  When prompted in the terminal, paste your free key from Groq Console. (If you skip, Jarvis still runs in local offline mode).
+  <span class="step-num">3</span> <strong>Configure Your Groq API Key (Optional):</strong>
+  When prompted in the terminal, paste your key from Groq Console (saved to <code>~/.ornion/free.key</code>). If you skip, ORNION still executes local deterministic commands.
 </div>
 
 <div class="step">
-  <span class="step-num">4</span> <strong>Launch Jarvis Voice:</strong>
-  To start listening at any time:
-  <pre>source .venv/bin/activate && python jarvis_voice.py</pre>
+  <span class="step-num">4</span> <strong>Launch ORNION & Neural Interface HUD:</strong>
+  Start ORNION at any time:
+  <pre>python jarvis_voice.py</pre>
+  Then open <code>http://127.0.0.1:8765</code> in your browser to view the <strong>ORNION Neural Interface</strong>.
 </div>
 
 <h2>3. Key Features & Voice Commands</h2>
@@ -193,77 +194,74 @@
 <table>
   <thead>
     <tr>
-      <th style="width: 35%;">Voice Command</th>
+      <th style="width: 35%;">Voice / Text Command</th>
       <th>Feature & Execution</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td><code>"Jarvis, open VS Code"</code></td>
-      <td><strong>Instant App Launcher:</strong> Launches VS Code, Chrome, Terminal, or any installed app hands-free.</td>
+      <td><code>"Ornion, open VS Code"</code></td>
+      <td><strong>App Launcher:</strong> Launches VS Code, Chrome, Notepad, Calculator, or installed desktop apps.</td>
     </tr>
     <tr>
       <td><code>"Play lofi on YouTube"</code></td>
-      <td><strong>YouTube Automation:</strong> Directly opens YouTube in your browser and starts playing requested music or topics.</td>
+      <td><strong>YouTube Automation:</strong> Opens YouTube search in your default browser.</td>
     </tr>
     <tr>
       <td><code>"Stock market report"</code></td>
-      <td><strong>Live Market Intelligence:</strong> Connects to Yahoo Finance, checks Nifty, Sensex, Reliance, Nvidia & crypto tickers.</td>
+      <td><strong>Live Market Intelligence:</strong> Connects to Yahoo Finance and checks Nifty 50, Sensex, Reliance, Nvidia & Bitcoin.</td>
     </tr>
     <tr>
       <td><code>"Should I buy Reliance?"</code></td>
-      <td><strong>Technical Buy/Sell Analysis:</strong> Calculates short/medium-term moving averages & momentum to issue a <em>BUY</em>, <em>SELL</em>, or <em>HOLD</em> signal.</td>
+      <td><strong>Technical Buy/Sell Analysis:</strong> Calculates 5-period and 15-period moving averages & momentum to issue a <em>BUY</em>, <em>SELL</em>, or <em>HOLD</em> signal.</td>
     </tr>
     <tr>
-      <td><code>"Send WhatsApp to Pallavi"</code></td>
-      <td><strong>WhatsApp Automation:</strong> Auto-triggers WhatsApp Web to compose and dispatch intelligent replies.</td>
+      <td><code>"Send WhatsApp to Pallavi saying hello"</code></td>
+      <td><strong>WhatsApp Web Automation:</strong> Opens WhatsApp Web with your drafted message pre-filled.</td>
     </tr>
     <tr>
-      <td><code>"Check unread emails"</code></td>
-      <td><strong>Executive Briefing:</strong> Summarizes inbox into a 30-second spoken update.</td>
+      <td><code>"Check my unread emails"</code></td>
+      <td><strong>Inbox Briefing:</strong> Summarizes cached priority emails into a spoken update.</td>
     </tr>
     <tr>
       <td><code>"Volume up" / "Mute"</code></td>
-      <td><strong>System Controls:</strong> Adjusts audio volume or mutes laptop audio instantly.</td>
+      <td><strong>System Audio Controls:</strong> Adjusts audio volume or mutes system audio.</td>
     </tr>
   </tbody>
 </table>
 
-<h2>4. The Gamechanger: Hybrid Failover (Zero Crashes)</h2>
+<h2>4. Hybrid Cloud + Local Cooldown Fallback</h2>
 <p>
-  Standard AI voice assistants crash or recite <em>"Rate limit reached, try again later"</em> whenever cloud tokens run out.
-  Jarvis features an <strong>Autonomous Cooldown Engine</strong>:
+  When cloud LLM tokens hit a rate limit (HTTP 429):
 </p>
 <ul>
-  <li>When Groq hits a token limit (HTTP 429), Jarvis parses the exact cooldown seconds without spamming the server.</li>
-  <li>It switches seamlessly to local offline Python code to execute commands without interruption.</li>
-  <li>You get 100% uptime, zero crashes, and complete privacy.</li>
+  <li>ORNION parses the exact cooldown seconds from the rate-limit response.</li>
+  <li>During cooldown, ORNION routes deterministic commands (apps, time/date, volume, WhatsApp URL, YouTube URL, stock chart checks) to local Python execution.</li>
 </ul>
 
-<h2>5. 3D Holographic Iron Man HUD</h2>
+<h2>5. ORNION Neural Interface HUD</h2>
 <p>
-  Double-click <code>jarvis_workplace.html</code> in any browser (Chrome/Safari) to open the HUD. It includes:
+  Open <code>http://127.0.0.1:8765</code> (or <code>jarvis_workplace.html</code>) in your browser to view:
 </p>
 <ul>
-  <li>Rotating wireframe 3D globe and segmented arc reactor rings.</li>
-  <li>Real-time responsive audio wave visualizer synced to microphone input.</li>
-  <li>Live stock market ticker panel with green/red gain indicators.</li>
+  <li>Rotating wireframe 3D globe and segmented reactor rings.</li>
+  <li>Real-time responsive voice frequency oscilloscope.</li>
+  <li>Live stock market ticker panel with sparklines and Buy/Sell/Hold indicators.</li>
 </ul>
 
 <div class="tenglish-box">
-  <h3>🇮🇳 Setup Guide (Tenglish Summary for Followers)</h3>
-  <p><strong>Followers ki easy ga explain cheyadaniki:</strong></p>
+  <h3>🇮🇳 Quick Setup Summary (Tenglish)</h3>
   <ol>
-    <li>Mee computer lo Python 3.10 install chesukondi (python.org).</li>
-    <li>Jarvis folder open chesi, Mac lo aithe terminal lo <code>./install.sh</code> run cheyandi, Windows lo aithe <code>install.bat</code> double-click cheyandi.</li>
-    <li>Free Groq API key (console.groq.com nunchi) adiginappudu paste cheyandi.</li>
-    <li><code>python jarvis_voice.py</code> run chesi mic mundhu <em>"Jarvis, open VS Code"</em> or <em>"Stock market report"</em> ani chepthe automatic ga work avthundi!</li>
-    <li>Holographic futuristic screen kosam <code>jarvis_workplace.html</code> ని browser lo open cheyandi.</li>
+    <li>Mee computer lo Python 3.10+ install chesukondi (python.org).</li>
+    <li>Windows lo aithe <code>install.bat</code> double-click cheyandi, Mac/Linux lo aithe terminal lo <code>./install.sh</code> run cheyandi.</li>
+    <li>Groq API key (console.groq.com nunchi) unte paste cheyandi leda Enter nokkandi.</li>
+    <li><code>python jarvis_voice.py</code> run chesi <em>"Ornion, open VS Code"</em> or <em>"Stock market report"</em> ani chepthe work avthundi!</li>
+    <li>ORNION Neural Interface HUD kosam browser lo <code>http://127.0.0.1:8765</code> open cheyandi.</li>
   </ol>
 </div>
 
 <div class="footer">
-  Created for Jarvis Community · Shareable Package · 100% Open Source & Free to Run
+  <strong>ORNION — Personal AI Assistant</strong> · Created and developed by <strong>Praneeth Thota</strong>
 </div>
 
 </body>

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Jarvis Workplace · Holographic HUD</title>
+<title>ORNION — Neural Interface HUD</title>
 <style>
 @property --h { syntax: '<number>'; inherits: true; initial-value: 190; }
 :root {
@@ -398,8 +398,8 @@ header::after {
   <div class="logo-wrap">
     <div class="logo-icon"></div>
     <div>
-      <div class="logo">J.A.R.V.I.S</div>
-      <div class="sub">MARK VII EXECUTIVE ASSISTANT · <span id="mode">ACTIVE</span></div>
+      <div class="logo">O.R.N.I.O.N</div>
+      <div class="sub">ORNION NEURAL INTERFACE · PERSONAL AI ASSISTANT · <span id="mode">ACTIVE</span></div>
     </div>
   </div>
   <div class="clock">
@@ -407,8 +407,8 @@ header::after {
     <div id="date"></div>
   </div>
   <div class="link">
-    <div id="link" class="ok">● QUANTUM LINK OK</div>
-    <div class="hint">Double-click for Fullscreen · Say "Close Workplace" to exit</div>
+    <div id="link" class="ok">● NEURAL LINK OK</div>
+    <div class="hint">Created by Praneeth Thota · Double-click for Fullscreen</div>
   </div>
  </header>
 
@@ -449,7 +449,7 @@ header::after {
   </div>
 
   <div class="panel grow">
-    <h2>EXECUTIVE BRIEFINGS & INBOX</h2>
+    <h2>BRIEFINGS & INBOX</h2>
     <div id="cards"></div>
   </div>
 
@@ -462,14 +462,14 @@ header::after {
 
 <div id="core">
   <div id="cst">LISTENING</div>
-  <div id="cnote">SYSTEM OPERATIONAL</div>
+  <div id="cnote">ORNION AI ONLINE</div>
   <div id="heard"></div>
 </div>
 
-<div class="corner-hud" id="c-tl">SYS.ID: MK-7 // CORE.ONLINE</div>
-<div class="corner-hud" id="c-tr">LATENCY: 12ms // BUFFER: OK</div>
+<div class="corner-hud" id="c-tl">SYS.ID: ORNION // NEURAL.INTERFACE</div>
+<div class="corner-hud" id="c-tr">AUTHOR: PRANEETH THOTA</div>
 <div class="corner-hud" id="c-bl">FAILOVER: HYBRID LOCAL/CLOUD</div>
-<div class="corner-hud" id="c-br">ENCRYPTION: 4096-BIT RSA</div>
+<div class="corner-hud" id="c-br">LOCALHOST: 127.0.0.1:8765</div>
 
 <div class="scan"></div>
 
@@ -497,7 +497,7 @@ const LABEL = {
   listening: 'LISTENING',
   recognizing: 'HEARING YOU',
   thinking: 'PROCESSING QUERY',
-  speaking: 'JARVIS RESPONDING',
+  speaking: 'ORNION RESPONDING',
   starting: 'CALIBRATING',
   off: 'OFFLINE'
 };
@@ -554,9 +554,10 @@ setInterval(() => {
 }, 1000);
 
 /* ---------- Poll State ---------- */
+const API_BASE = location.protocol === 'file:' ? 'http://127.0.0.1:8765' : '';
 async function poll() {
   try {
-    const r = await fetch('/api/state?lv=' + lvN, { cache: 'no-store' });
+    const r = await fetch(API_BASE + '/api/state?lv=' + lvN, { cache: 'no-store' });
     const j = await r.json();
     S = j;
     lastOk = Date.now();
@@ -677,7 +678,7 @@ function render(j) {
       added = true;
       const d = el('div', 'm ' + m.k);
       d.append(
-        el('i', '', m.k === 'you' ? 'USER ▸' : (m.k === 'jarvis' ? 'JARVIS ▸' : 'SYS ▸')),
+        el('i', '', m.k === 'you' ? 'USER ▸' : (m.k === 'jarvis' ? 'ORNION ▸' : 'SYS ▸')),
         document.createTextNode(m.x),
         el('small', '', m.t)
       );

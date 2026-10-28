@@ -1,6 +1,6 @@
 {
-  "name": "",
-  "description": "",
-  "requestFramePermissions": [],
+  "name": "ORNION — Personal AI Assistant",
+  "description": "ORNION — Personal AI Assistant and Automation Platform created and developed by Praneeth Thota. Features a 3D holographic neural interface, real-time market intelligence, voice automation, and hybrid cloud-to-local fallback.",
+  "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

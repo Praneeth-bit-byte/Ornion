@@ -1,11 +1,20 @@
-# ⚡ Jarvis AI Personal Assistant - Complete Setup
+# ⚡ ORNION — Personal AI Assistant
 
-> **A real voice-controlled AI executive assistant for your computer.**
-> Features voice app launching, YouTube playback, WhatsApp automation, email briefings, live stock market analysis (Buy/Sell calls), rate-limit failover, and a 3D holographic Iron Man HUD!
+**Created and developed by Praneeth Thota**  
+*Personal AI Assistant and Automation Platform*
+
+> **A voice-and-text-controlled Personal AI Assistant for Windows, macOS, and Linux.**  
+> Features desktop app launching, YouTube & Google search automation, WhatsApp Web message drafting, unread email briefings, stock market technical analysis (SMA Buy/Sell signals), rate-limit cooldown fallback, and the 3D **ORNION Neural Interface HUD**!
 
 ---
 
-## 🚀 Quick Start (In 60 Seconds)
+## 🚀 Quick Start
+
+### On Windows (Primary Development Environment):
+Double-click `install.bat` or run in Command Prompt:
+```cmd
+install.bat
+```
 
 ### On macOS / Linux:
 ```bash
@@ -13,36 +22,39 @@ chmod +x install.sh
 ./install.sh
 ```
 
-### On Windows:
-Double-click `install.bat` or run:
-```cmd
-install.bat
+### Start ORNION:
+```bash
+python jarvis_voice.py
 ```
+*(Module filenames are retained for backward script and import compatibility).*
 
 ---
 
-## 🎙️ Voice Commands Cheat-Sheet
+## 🎙️ Voice & Text Commands Cheat-Sheet
 
-| What You Say | What Jarvis Does |
+| What You Say / Type | What ORNION Does |
 | :--- | :--- |
-| `"Jarvis, open VS Code"` | Launches Visual Studio Code instantly |
-| `"Play lofi on YouTube"` | Opens YouTube and starts playing lofi music |
-| `"Stock market report"` | Analyzes Nifty, Sensex, Reliance, Nvidia & crypto |
-| `"Should I buy Reliance?"` | Checks moving averages and gives Buy/Sell advice |
-| `"Check my unread emails"` | Reads your unread mail and provides a 30s briefing |
-| `"Send WhatsApp message to Pallavi"` | Opens WhatsApp Web and drafts a message |
-| `"Volume up" / "Mute"` | Adjusts your system volume hands-free |
+| `"Ornion, open VS Code"` | Launches Visual Studio Code (or target desktop app) |
+| `"Play lofi on YouTube"` | Opens YouTube search/playback in your default browser |
+| `"Stock market report"` | Analyzes Nifty 50, Sensex, Reliance, Nvidia & Bitcoin |
+| `"Should I buy Reliance?"` | Calculates 5/15 moving averages and gives Buy/Sell/Hold signal |
+| `"Check my unread emails"` | Reads your local mail cache and provides a spoken briefing |
+| `"Send WhatsApp to Pallavi saying hello"` | Opens WhatsApp Web with your message pre-filled |
+| `"Volume up" / "Mute"` | Adjusts your system audio volume |
 
 ---
 
-## 🛡️ Best Part: Hybrid Failover (Zero Crashes)
-When cloud LLMs hit daily token limits or rate limits (HTTP 429), standard assistants crash and give error messages. 
-Jarvis has an **Automatic Cooldown & Local Fallback Engine**:
-- Detects the exact rate-limit duration.
-- Switches instantly to offline local code.
-- Executes your commands locally without interruption!
+## 🛡️ Hybrid Cloud + Local Fallback
+When cloud LLM endpoints hit rate limits (HTTP 429) or when no cloud API key is configured, ORNION's **Rate-Limit Cooldown & Local Action Engine**:
+- Parses retry-after cooldown durations when HTTP 429 occurs.
+- Routes deterministic commands (time, date, apps, volume, WhatsApp URL, YouTube URL, cached mail brief, market chart queries) to local Python execution.
 
 ---
 
-## 🌐 Holographic Iron Man HUD
-Double click `jarvis_workplace.html` in your browser to experience the glowing cyber reactor core, animated globe, live voice audio visualizer, and live market quotes.
+## 🌐 ORNION Neural Interface HUD
+When `python jarvis_voice.py` is running, open **`http://127.0.0.1:8765`** (or open `jarvis_workplace.html`) in your browser to view the 3D wireframe globe, reactor core, live voice frequency oscilloscope, and real-time market tickers.
+
+---
+
+**Project:** ORNION — Personal AI Assistant  
+**Creator / Author:** Praneeth Thota

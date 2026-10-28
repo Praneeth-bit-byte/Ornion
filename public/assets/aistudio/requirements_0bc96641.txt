@@ -1,4 +1,5 @@
-# Jarvis AI Personal Assistant - Dependencies
+# ORNION — Personal AI Assistant - Python Dependencies
+# Created and developed by Praneeth Thota
 openai>=1.12.0
 SpeechRecognition>=3.10.0
 requests>=2.31.0
