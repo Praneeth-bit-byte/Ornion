@@ -520,11 +520,11 @@ def try_action(q):
         _record_tool("Mute Audio")
         return msg
 
-    # 8. Date and Time
-    if "time" in q_clean:
+    # 8. Date and Time (strict matching so conversational queries are not intercepted)
+    if re.match(r"^(?:what\s+time\s+is\s+it|what(?:'s|\s+is)\s+the\s+(?:current\s+)?time|current\s+time|tell\s+me\s+the\s+time)$", q_clean):
         _record_tool("System Clock")
         return "It is currently " + datetime.datetime.now().strftime("%I:%M %p")
-    if "date" in q_clean or "today" in q_clean:
+    if re.match(r"^(?:what\s+(?:date|day)\s+is\s+(?:it|today)|what(?:'s|\s+is)\s+today(?:'s)?\s+date|today(?:'s)?\s+date)$", q_clean):
         _record_tool("System Calendar")
         return "Today is " + datetime.datetime.now().strftime("%A, %B %d, %Y")
 

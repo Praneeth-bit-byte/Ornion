@@ -3,8 +3,8 @@ ORNION — Personal AI Assistant (jarvis_brain.py compatibility module)
 Created and developed by Praneeth Thota
 
 Hybrid Cloud + Local Fallback AI Brain with Rate-Limit Cooldown Handling.
-Uses Groq endpoints for cloud LLM responses and falls back to local deterministic
-command processing when rate-limited or when no cloud key is configured.
+Supports NVIDIA API Catalog (mistralai/mistral-large-4-1t-a52b) via NVIDIA_API_KEY
+or ~/.ornion/nvidia.key, as well as Groq endpoints via GROQ_API_KEY or ~/.ornion/free.key.
 """
 
 import os
@@ -18,43 +18,56 @@ try:
 except Exception:
     OpenAI = None  # type: ignore[misc,assignment]
 
+NVIDIA_KEYFILE = os.path.expanduser("~/.ornion/nvidia.key")
 KEYFILE = os.path.expanduser("~/.ornion/free.key")
 LEGACY_KEYFILE = os.path.expanduser("~/.openjarvis/free.key")
-MODELS = ["llama-3.3-70b-versatile", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
+
+NVIDIA_BASE_URL = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
+NVIDIA_MODEL = os.environ.get("NVIDIA_MODEL", "mistralai/mistral-large-4-1t-a52b")
+GROQ_MODELS = ["llama-3.3-70b-versatile", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
 
 _BRAIN_LOCK = threading.Lock()
 _client = None
 _client_key = None
+_client_provider = None
 _history = []
 _cooldown_until = 0.0
-_last_model = "Local Action Engine"
+_last_model = NVIDIA_MODEL
 _last_mode = "HYBRID"
 
-SYSTEM_PROMPT = """You are ORNION, a fast, capable Personal AI Assistant running on the user's system.
-Respond concisely in 1-2 sentences. Be direct, helpful, and natural. Do not use filler or formal corporate jargon.
+SYSTEM_PROMPT = """You are ORNION, a fast, capable Personal AI Assistant created and developed by Praneeth Thota, running on the user's system.
+Respond concisely in 1-3 sentences. Be direct, helpful, and natural. Do not use filler or formal corporate jargon.
 """
 
 
-def _get_api_key():
-    if os.environ.get("GROQ_API_KEY"):
-        val = os.environ["GROQ_API_KEY"].strip()
-        if val:
-            return val
-    for candidate in (KEYFILE, LEGACY_KEYFILE):
+def _get_api_credentials():
+    """Returns (provider, api_key, base_url, models) where provider is 'nvidia' or 'groq'."""
+    nv_env = os.environ.get("NVIDIA_API_KEY", "").strip()
+    if nv_env and nv_env != "YOUR_NVIDIA_API_KEY":
+        return ("nvidia", nv_env, NVIDIA_BASE_URL, [NVIDIA_MODEL])
+
+    for candidate in (NVIDIA_KEYFILE, KEYFILE, LEGACY_KEYFILE):
         if os.path.exists(candidate):
             try:
                 with open(candidate, "r", encoding="utf-8") as f:
                     val = f.read().strip()
+                    if val.startswith("nvapi-"):
+                        return ("nvidia", val, NVIDIA_BASE_URL, [NVIDIA_MODEL])
                     if val:
-                        return val
+                        return ("groq", val, "https://api.groq.com/openai/v1", GROQ_MODELS)
             except Exception:
                 pass
-    return None
+
+    groq_env = os.environ.get("GROQ_API_KEY", "").strip()
+    if groq_env:
+        return ("groq", groq_env, "https://api.groq.com/openai/v1", GROQ_MODELS)
+
+    return (None, None, None, [])
 
 
 def ready():
     """Returns True if the cloud brain is configured and not currently rate-limited."""
-    key = _get_api_key()
+    _prov, key, _url, _models = _get_api_credentials()
     if not key or OpenAI is None:
         return False
     return time.time() >= _cooldown_until
@@ -67,7 +80,7 @@ def cooldown_remaining():
 
 def get_brain_telemetry():
     """Returns thread-safe snapshot of brain mode, active model, cooldown, and memory count."""
-    key = _get_api_key()
+    _prov, key, _url, _models = _get_api_credentials()
     cd = cooldown_remaining()
     with _BRAIN_LOCK:
         if cd > 0:
@@ -111,7 +124,7 @@ def _set_cooldown(secs):
 
 def _local_fallback(q):
     """
-    Called when Groq API is temporarily rate-limited or unconfigured.
+    Called when Cloud API is temporarily rate-limited or unconfigured.
     Provides immediate local action execution or clear local fallback guidance.
     """
     global _last_model, _last_mode
@@ -122,62 +135,77 @@ def _local_fallback(q):
         return action_res
 
     cd = cooldown_remaining()
+    _prov, key, _url, _models = _get_api_credentials()
     with _BRAIN_LOCK:
         if cd > 0:
             _last_mode = "LOCAL FAILOVER"
             _last_model = f"Local Fallback (Cooldown {cd}s)"
-        else:
+            return (
+                f"Cloud AI is in rate-limit cooldown ({cd}s remaining). "
+                "Deterministic local tools (stock analysis, app launching, YouTube, and volume control) remain active."
+            )
+        if not key:
             _last_mode = "OFFLINE LOCAL"
-            _last_model = "Local Action Engine"
+            _last_model = "Unconfigured Cloud Key"
+            return (
+                "No NVIDIA_API_KEY or ~/.ornion/free.key is configured yet. "
+                "Add your API key to enable conversational AI, or use local commands like 'Open Calculator' or 'Stock market report'."
+            )
+        _last_mode = "OFFLINE LOCAL"
+        _last_model = "Local Action Engine"
 
     return (
-        "Cloud API is cooling down, but ORNION local commands are active. "
-        "I can open your apps, draft WhatsApp messages, or analyze stock charts for you."
+        "Cloud AI service was unreachable, so ORNION Local Mode is active. "
+        "I can still open your desktop apps, prepare WhatsApp messages, or analyze stock charts."
     )
 
 
 def think(q):
     """
-    Main entry point for queries. Tries local deterministic actions first,
-    then cloud AI with automatic fallback if rate-limited.
+    Main entry point for queries. Tries strict local deterministic actions first,
+    then NVIDIA Mistral Large 4 / Groq cloud AI with automatic cooldown handling.
     """
-    global _client, _client_key, _history, _last_model, _last_mode
+    global _client, _client_key, _client_provider, _history, _last_model, _last_mode
 
     if not q or not isinstance(q, str):
         return "I didn't catch that command."
 
-    # 1. Immediate local action check
+    # 1. Immediate strict local action check
     local_done = jarvis_actions.try_action(q)
     if local_done:
         with _BRAIN_LOCK:
             _last_model = "Local Action Engine"
         return local_done
 
-    key = _get_api_key()
+    provider, key, base_url, models = _get_api_credentials()
     if not key or OpenAI is None or time.time() < _cooldown_until:
         return _local_fallback(q)
 
     with _BRAIN_LOCK:
-        if _client is None or _client_key != key:
-            _client = OpenAI(api_key=key, base_url="https://api.groq.com/openai/v1")
+        if _client is None or _client_key != key or _client_provider != provider:
+            _client = OpenAI(api_key=key, base_url=base_url)
             _client_key = key
+            _client_provider = provider
         client = _client
-        msgs = [{"role": "system", "content": SYSTEM_PROMPT}] + _history[-6:] + [{"role": "user", "content": q}]
+        msgs = [{"role": "system", "content": SYSTEM_PROMPT}] + _history[-8:] + [{"role": "user", "content": q}]
 
-    for model in MODELS:
+    for model in models:
         try:
+            extra_body = {"reasoning_effort": "low"} if provider == "nvidia" else None
+            max_tok = 2048 if provider == "nvidia" else 450
             resp = client.chat.completions.create(
                 model=model,
                 messages=msgs,
-                max_tokens=350,
-                temperature=0.6,
+                max_tokens=max_tok,
+                temperature=0.5,
+                extra_body=extra_body,
             )
             answer = (resp.choices[0].message.content or "").strip()
             if answer:
                 with _BRAIN_LOCK:
                     _history += [{"role": "user", "content": q}, {"role": "assistant", "content": answer}]
                     del _history[:-20]
-                    _last_model = f"Groq / {model}"
+                    _last_model = f"NVIDIA / {model}" if provider == "nvidia" else f"Groq / {model}"
                     _last_mode = "HYBRID"
                 return answer
         except Exception as e:
@@ -186,7 +214,7 @@ def think(q):
                 _set_cooldown(wait_sec)
                 print(f"[ORNION rate-limit triggered: cooldown for {wait_sec}s]")
                 return _local_fallback(q)
-            print(f"[Model {model} failed: {e}]")
+            print(f"[Model {model} error: {type(e).__name__}]")
 
     return _local_fallback(q)
 
@@ -194,4 +222,4 @@ def think(q):
 if __name__ == "__main__":
     print("Testing ORNION Brain...")
     print(think("what time is it"))
-    print(think("how are you"))
+    print(think("Hello! What is your name?"))
