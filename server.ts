@@ -24,14 +24,23 @@ function sanitizeSecrets(input: unknown): string {
     .replace(/AIza[a-zA-Z0-9_-]+/g, "[REDACTED_API_KEY]");
 }
 
+function isPlaceholderNvidiaKey(val: string | undefined | null): boolean {
+  if (!val) return true;
+  const trimmed = val.trim();
+  if (trimmed.length <= 10) return true;
+  const lower = trimmed.toLowerCase();
+  return (
+    lower === "your_nvidia_api_key" ||
+    lower === "my_nvidia_api_key" ||
+    lower === "your_nvidia_api_key_here" ||
+    lower === "nvapi-your-key-here" ||
+    lower === "nvapi-xxxxxxxxxxxxxxxx"
+  );
+}
+
 function getNvidiaApiKey(): string | null {
   const envKey = process.env.NVIDIA_API_KEY?.trim();
-  if (
-    envKey &&
-    envKey !== "YOUR_NVIDIA_API_KEY" &&
-    envKey !== "MY_NVIDIA_API_KEY" &&
-    envKey.length > 10
-  ) {
+  if (envKey && !isPlaceholderNvidiaKey(envKey)) {
     return envKey;
   }
 
@@ -44,7 +53,7 @@ function getNvidiaApiKey(): string | null {
     try {
       if (fs.existsSync(file)) {
         const val = fs.readFileSync(file, "utf-8").trim();
-        if (val.startsWith("nvapi-") && val.length > 20) {
+        if (val.startsWith("nvapi-") && val.length > 20 && !isPlaceholderNvidiaKey(val)) {
           return val;
         }
       }
@@ -67,7 +76,8 @@ function getNvidiaBaseUrl(): string {
 
 function getNvidiaTimeoutMs(): number {
   const parsed = Number(process.env.NVIDIA_TIMEOUT_MS);
-  return Number.isFinite(parsed) && parsed >= 3000 ? parsed : 25_000;
+  // Ensure at least 75s timeout for Mistral Large 4 (1T MoE reasoning model on NVIDIA NIM)
+  return Number.isFinite(parsed) && parsed >= 60_000 ? parsed : 75_000;
 }
 
 // ============================================================================
@@ -395,6 +405,51 @@ async function getMarketWatchlist(): Promise<StockAnalysis[]> {
   const symbols = Object.keys(DEFAULT_TICKERS);
   return Promise.all(symbols.map((sym) => analyzeTicker(sym)));
 }
+
+let isRefreshingWatchlist = false;
+
+function refreshMarketWatchlistInBackground(): void {
+  if (isRefreshingWatchlist) return;
+  isRefreshingWatchlist = true;
+  const symbols = Object.keys(DEFAULT_TICKERS);
+  Promise.allSettled(symbols.map((sym) => analyzeTicker(sym))).finally(() => {
+    isRefreshingWatchlist = false;
+  });
+}
+
+function getMarketWatchlistNonBlocking(): StockAnalysis[] {
+  const symbols = Object.keys(DEFAULT_TICKERS);
+  const now = Date.now();
+  let needsRefresh = false;
+
+  const list = symbols.map((sym) => {
+    const cleanSym = sym.toUpperCase().trim();
+    const cached = marketCache.get(cleanSym);
+    if (cached) {
+      if (now - cached.timestamp >= CACHE_TTL_MS) {
+        needsRefresh = true;
+      }
+      return cached.data;
+    }
+    needsRefresh = true;
+    const metaInfo = DEFAULT_TICKERS[cleanSym];
+    const initial = generateOfflineEstimateSeries(cleanSym, metaInfo);
+    // Use timestamp 0 so background refresh immediately updates with live Yahoo Finance data
+    marketCache.set(cleanSym, { data: initial, timestamp: 0 });
+    return initial;
+  });
+
+  if (needsRefresh) {
+    refreshMarketWatchlistInBackground();
+  }
+
+  return list;
+}
+
+// Kick off initial background market fetch at startup without blocking server boot
+setTimeout(() => {
+  refreshMarketWatchlistInBackground();
+}, 100);
 
 async function getSpokenMarketBriefing(): Promise<{ text: string; anyStale: boolean }> {
   const focus = ["^NSEI", "RELIANCE.NS", "NVDA", "BTC-USD"];
@@ -1755,28 +1810,7 @@ async function tryStrictDeterministicTool(
 // ============================================================================
 
 const ORNION_SYSTEM_PROMPT = `You are ORNION — Personal AI Assistant, created and developed by Praneeth Thota.
-You run inside the ORNION Neural Interface HUD and assist the user with natural conversation, technical explanations, reasoning, and system tools.
-
-Identity & Capabilities:
-- Name: ORNION (Personal AI Assistant)
-- Creator / Author: Praneeth Thota
-- AI Engine: NVIDIA API Catalog running Mistral Large 4 (mistralai/mistral-large-4-1t-a52b)
-- Available real tools in ORNION:
-  1. YouTube Media & Search (e.g., "Play lofi music on YouTube", "Play relaxing music", "Search YouTube for programming tutorials")
-  2. Genuine Gmail Unread Inbox Briefings via Google OAuth 2.0 (e.g., "Check my unread emails")
-  3. Live Stock Market & SMA Technical Scanner (Nifty 50, Sensex, Reliance, TCS, Infosys, HDFC Bank, Nvidia, Apple, Bitcoin)
-  4. Allowlisted Windows Desktop Application Launcher (Notepad, Calculator, Visual Studio Code, Paint, File Explorer, Task Manager, Command Prompt, PowerShell)
-  5. WhatsApp Web Message Draft Preparation
-
-Tool Invocation Protocol:
-If the user's message is a direct request to execute one of the tools above (and was not already handled), you may emit a single-line JSON directive on the VERY FIRST LINE in this exact format:
-[TOOL_CALL: {"tool":"youtube_play","query":"..."}]
-or [TOOL_CALL: {"tool":"youtube_search","query":"..."}]
-or [TOOL_CALL: {"tool":"gmail_briefing"}]
-or [TOOL_CALL: {"tool":"open_app","app":"..."}]
-or [TOOL_CALL: {"tool":"market_report","symbol":"..."}]
-
-For all conversational messages, greetings (like "Hello"), questions about your name or capabilities, explanations, or follow-up questions (like "What did I just ask you?"), respond directly, naturally, and concisely in 1 to 4 sentences without any [TOOL_CALL] prefix. Never invent fake emails, fake app launches, or fake playback states.`;
+Answer user greetings, questions, and follow-ups directly, naturally, and concisely in 1 to 3 sentences. Keep internal reasoning brief and never invent fake emails, fake app launches, or fake playback states.`;
 
 function isRateLimitedStatus(status: number, bodyText: string): boolean {
   if (status === 429) return true;
@@ -1786,7 +1820,12 @@ function isRateLimitedStatus(status: number, bodyText: string): boolean {
   );
 }
 
-async function callNvidiaMistral(userMessage: string): Promise<{
+type TestDiagnosticMode = "missing" | "invalid" | "timeout" | "empty";
+
+async function callNvidiaMistral(
+  userMessage: string,
+  testKeyMode?: TestDiagnosticMode
+): Promise<{
   ok: boolean;
   status: number;
   content: string;
@@ -1794,10 +1833,15 @@ async function callNvidiaMistral(userMessage: string): Promise<{
   error?: string;
   rateLimited?: boolean;
 }> {
-  const apiKey = getNvidiaApiKey();
+  const apiKey =
+    testKeyMode === "missing"
+      ? null
+      : testKeyMode === "invalid"
+      ? "nvapi-invalid-diagnostic-key-000000000000"
+      : getNvidiaApiKey();
   const model = getNvidiaModel();
   const baseUrl = getNvidiaBaseUrl();
-  const timeoutMs = getNvidiaTimeoutMs();
+  const timeoutMs = testKeyMode === "timeout" ? 50 : getNvidiaTimeoutMs();
 
   if (!apiKey) {
     const msg =
@@ -1812,6 +1856,13 @@ async function callNvidiaMistral(userMessage: string): Promise<{
     };
   }
 
+  if (testKeyMode === "empty") {
+    const msg =
+      "NVIDIA Mistral Large 4 returned an empty message content response. Please retry your question or check model status.";
+    lastAiError = msg;
+    return { ok: false, status: 502, content: "", model, error: msg };
+  }
+
   const endpoint = `${baseUrl}/chat/completions`;
   const messages = [
     { role: "system", content: ORNION_SYSTEM_PROMPT },
@@ -1819,23 +1870,28 @@ async function callNvidiaMistral(userMessage: string): Promise<{
     { role: "user", content: userMessage },
   ];
 
-  const reasoningEffort = (process.env.NVIDIA_REASONING_EFFORT || "low").trim();
+  const configuredEffort = (process.env.NVIDIA_REASONING_EFFORT || "low").trim();
+  const maxAttempts = testKeyMode ? 1 : 2;
 
-  const payload = {
-    model,
-    messages,
-    max_tokens: 4096,
-    stream: false,
-    temperature: 0.5,
-    top_p: 1,
-    frequency_penalty: 0,
-    presence_penalty: 0,
-    reasoning_effort: reasoningEffort,
-  };
-
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let timer = setTimeout(() => controller.abort(), timeoutMs);
+    const resetWatchdog = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => controller.abort(), Math.min(timeoutMs, 60_000));
+    };
+
+    const payload: Record<string, unknown> = {
+      model,
+      messages,
+      max_tokens: attempt === 1 ? 1024 : 2048,
+      stream: true,
+      temperature: 0.4,
+      top_p: 1,
+      frequency_penalty: 0,
+      presence_penalty: 0,
+      reasoning_effort: attempt === 1 ? configuredEffort : "low",
+    };
 
     try {
       const resp = await fetch(endpoint, {
@@ -1843,14 +1899,14 @@ async function callNvidiaMistral(userMessage: string): Promise<{
         headers: {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
-          Accept: "application/json",
+          Accept: "text/event-stream, application/json",
         },
         body: JSON.stringify(payload),
         signal: controller.signal,
       });
-      clearTimeout(timer);
 
       if (!resp.ok) {
+        clearTimeout(timer);
         const errText = await resp.text().catch(() => "");
         const safeErr = sanitizeSecrets(errText.slice(0, 240));
 
@@ -1883,7 +1939,7 @@ async function callNvidiaMistral(userMessage: string): Promise<{
         }
 
         // Retry once on 5xx server errors
-        if (resp.status >= 500 && attempt === 1) {
+        if (resp.status >= 500 && attempt < maxAttempts) {
           await new Promise((r) => setTimeout(r, 700));
           continue;
         }
@@ -1893,32 +1949,77 @@ async function callNvidiaMistral(userMessage: string): Promise<{
         return { ok: false, status: resp.status, content: "", model, error: msg };
       }
 
-      const data: any = await resp.json();
-      const choice = data?.choices?.[0]?.message;
-      const rawContent = (choice?.content || "").trim();
+      const contentType = (resp.headers.get("content-type") || "").toLowerCase();
+      let rawContent = "";
+      let resolvedModel = model;
 
-      if (rawContent) {
+      if (contentType.includes("text/event-stream") && resp.body) {
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          resetWatchdog();
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const rawLine of lines) {
+            const line = rawLine.trim();
+            if (!line.startsWith("data:")) continue;
+            const dataPayload = line.slice(5).trim();
+            if (!dataPayload || dataPayload === "[DONE]") continue;
+            try {
+              const parsedChunk = JSON.parse(dataPayload);
+              if (parsedChunk?.model) resolvedModel = parsedChunk.model;
+              const delta = parsedChunk?.choices?.[0]?.delta;
+              if (typeof delta?.content === "string") {
+                rawContent += delta.content;
+              }
+            } catch {
+              // ignore partial JSON frame
+            }
+          }
+        }
+        clearTimeout(timer);
+      } else {
+        const data: any = await resp.json();
+        clearTimeout(timer);
+        resolvedModel = data?.model || model;
+        const choice = data?.choices?.[0]?.message;
+        rawContent = typeof choice?.content === "string" ? choice.content : "";
+      }
+
+      const trimmedContent = rawContent.trim();
+      if (trimmedContent) {
         lastAiError = null;
         return {
           ok: true,
           status: 200,
-          content: rawContent,
-          model: data?.model || model,
+          content: trimmedContent,
+          model: resolvedModel,
         };
       }
 
-      const msg = "NVIDIA Mistral Large 4 returned an empty message content response.";
+      if (attempt < maxAttempts) {
+        continue;
+      }
+
+      const msg =
+        "NVIDIA Mistral Large 4 returned an empty message content response. Please retry your question or check model status.";
       lastAiError = msg;
       return { ok: false, status: 502, content: "", model, error: msg };
     } catch (err: any) {
       clearTimeout(timer);
       const isTimeout = err?.name === "AbortError";
-      if (!isTimeout && attempt === 1) {
+      if (!isTimeout && attempt < maxAttempts) {
         await new Promise((r) => setTimeout(r, 600));
         continue;
       }
       const msg = isTimeout
-        ? `NVIDIA API request timed out after ${Math.round(timeoutMs / 1000)}s.`
+        ? `NVIDIA API request timed out after ${Math.max(1, Math.round(timeoutMs / 1000))}s. Please try again.`
         : `Network error contacting NVIDIA API Catalog: ${sanitizeSecrets(err?.message || err)}`;
       lastAiError = msg;
       return { ok: false, status: isTimeout ? 504 : 503, content: "", model, error: msg };
@@ -1936,18 +2037,21 @@ async function callNvidiaMistral(userMessage: string): Promise<{
 
 async function processCommandPipeline(
   cleanQuery: string,
-  gmailAccessToken?: string | null
+  gmailAccessToken?: string | null,
+  testKeyMode?: TestDiagnosticMode
 ): Promise<ToolDispatchResult> {
-  // 1. Check strict deterministic tools first
-  const deterministic = await tryStrictDeterministicTool(cleanQuery, gmailAccessToken);
-  if (deterministic) {
-    recordConversationTurn(cleanQuery, deterministic.reply);
-    return deterministic;
+  // 1. Check strict deterministic tools first (unless explicitly testing AI key diagnostics)
+  if (!testKeyMode) {
+    const deterministic = await tryStrictDeterministicTool(cleanQuery, gmailAccessToken);
+    if (deterministic) {
+      recordConversationTurn(cleanQuery, deterministic.reply);
+      return deterministic;
+    }
   }
 
   // 2. Check if simulated or real HTTP 429 rate-limit cooldown is active
   const inCooldown = simulatedFailoverMode || Date.now() < cooldownUntil;
-  if (inCooldown) {
+  if (inCooldown && !testKeyMode) {
     const remainingSec = Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000));
     const reply = `NVIDIA Mistral Large 4 is currently in HTTP 429 rate-limit cooldown (${remainingSec}s remaining). Conversational AI reasoning is paused until cooldown expires, or you can click 'Restore Cloud' in the top ribbon. Deterministic tools (YouTube, Gmail briefings, stock analysis, and desktop app launching) remain available.`;
     return {
@@ -1966,7 +2070,7 @@ async function processCommandPipeline(
   }
 
   // 3. Call NVIDIA Mistral Large 4
-  const aiRes = await callNvidiaMistral(cleanQuery);
+  const aiRes = await callNvidiaMistral(cleanQuery, testKeyMode);
   if (!aiRes.ok) {
     return {
       reply: `AI Service Error: ${aiRes.error}`,
@@ -2166,10 +2270,11 @@ app.get("/api/state", async (req, res) => {
   try {
     const token = extractBearerToken(req);
     if (token && !gmailStatus.connected) {
-      await fetchLiveGmailUnread(token);
+      // Refresh Gmail in the background so /api/state never blocks chat updates
+      fetchLiveGmailUnread(token).catch(() => {});
     }
 
-    const stocks = await getMarketWatchlist();
+    const stocks = getMarketWatchlistNonBlocking();
     const totalMem = os.totalmem();
     const freeMem = os.freemem();
     const ramPct = Math.round(((totalMem - freeMem) / totalMem) * 100);
@@ -2244,11 +2349,11 @@ app.post("/api/command", async (req, res) => {
     return res.status(400).json({ error: "Query exceeds maximum allowed length (2000 characters)." });
   }
 
-  // Prevent accidental double-submission within 600ms
+  // Prevent accidental double-click submission within 150ms while allowing intentional repeated messages
   const now = Date.now();
   if (
     lastProcessedCommand.query === rawTrimmed &&
-    now - lastProcessedCommand.timestamp < 600
+    now - lastProcessedCommand.timestamp < 150
   ) {
     return res.status(429).json({
       error: "Duplicate command ignored.",
@@ -2261,7 +2366,7 @@ app.post("/api/command", async (req, res) => {
   const wakeStripped = cleanQuery.replace(/^(?:ornion|jarvis)[\s,.:!?-]+/i, "").trim();
   if (/^(?:ornion|jarvis)[\s,.:!?-]*$/i.test(cleanQuery)) {
     const wakeReply = "ORNION is online and listening. How can I help you?";
-    addChat("you", rawTrimmed, "LOCAL_DETERMINISTIC");
+    const userMsg = addChat("you", rawTrimmed, "LOCAL_DETERMINISTIC");
     const execution: ExecutionReport = {
       intent: "conversation",
       tool: "Wake Word Listener",
@@ -2275,6 +2380,7 @@ app.post("/api/command", async (req, res) => {
       source: "LOCAL_DETERMINISTIC",
       toolName: "Wake Word Listener",
       execution,
+      userMessage: userMsg,
       message: msg,
     });
   }
@@ -2283,16 +2389,25 @@ app.post("/api/command", async (req, res) => {
   }
 
   const gmailToken = extractBearerToken(req);
+  const rawTestKeyHeader = String(req.headers["x-ornion-test-key-mode"] || "").toLowerCase();
+  const testKeyMode: TestDiagnosticMode | undefined =
+    rawTestKeyHeader === "missing" ||
+    rawTestKeyHeader === "invalid" ||
+    rawTestKeyHeader === "timeout" ||
+    rawTestKeyHeader === "empty"
+      ? rawTestKeyHeader
+      : undefined;
+
   const startMs = Date.now();
   hudRuntimeState.state = "thinking";
   hudRuntimeState.last_you = cleanQuery;
   hudRuntimeState.t_rec = speechLatencyMs ? Number((speechLatencyMs / 1000).toFixed(2)) : 0.32;
   hudRuntimeState.tool_active = true;
 
-  addChat("you", rawTrimmed, "LOCAL_DETERMINISTIC");
+  const userMsg = addChat("you", rawTrimmed, "LOCAL_DETERMINISTIC");
 
   try {
-    const result = await processCommandPipeline(cleanQuery, gmailToken);
+    const result = await processCommandPipeline(cleanQuery, gmailToken, testKeyMode);
     const elapsedSec = Number(((Date.now() - startMs) / 1000).toFixed(2));
     toolsRunCount += 1;
 
@@ -2330,13 +2445,39 @@ app.post("/api/command", async (req, res) => {
       execution: result.execution,
       media: result.media,
       t_think: hudRuntimeState.t_think,
+      userMessage: userMsg,
       message: ornionMsg,
     });
   } catch (err) {
     hudRuntimeState.state = "listening";
     hudRuntimeState.tool_active = false;
     const safeMsg = sanitizeSecrets(err);
-    res.status(500).json({ error: safeMsg });
+    const diagReply = `AI Service Error: Unexpected command pipeline exception (${safeMsg}).`;
+    const execution: ExecutionReport = {
+      intent: "conversation",
+      tool: "ORNION Command Pipeline",
+      executed: false,
+      status: "ERROR",
+      evidence: safeMsg,
+      nextStep: "Verify server logs and retry your command.",
+    };
+    const errOrnionMsg = addChat(
+      "jarvis",
+      diagReply,
+      "AI_SERVICE_ERROR",
+      undefined,
+      undefined,
+      execution
+    );
+    res.status(500).json({
+      error: safeMsg,
+      reply: diagReply,
+      source: "AI_SERVICE_ERROR",
+      toolName: "ORNION Command Pipeline",
+      execution,
+      userMessage: userMsg,
+      message: errOrnionMsg,
+    });
   }
 });
 

@@ -279,10 +279,64 @@ export default function App() {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
   const rafMicRef = useRef<number>(0);
+  const chatContainerRef = useRef<HTMLDivElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const ttsEnabledRef = useRef<boolean>(ttsEnabled);
   const gmailTokenRef = useRef<string | null>(gmailToken);
-  const prevChatCountRef = useRef<number>(0);
+  const prevChatSignatureRef = useRef<string>("");
+
+  // Chat consistency & stale-poll protection refs
+  const confirmedChatMapRef = useRef<Map<number, ChatEntry>>(new Map());
+  const pendingOptimisticRef = useRef<ChatEntry[]>([]);
+  const localFallbackEntriesRef = useRef<ChatEntry[]>([]);
+  const commandMutationEpochRef = useRef<number>(0);
+
+  const mergeChatEntries = useCallback(
+    (existingChat: ChatEntry[], incomingServerChat: ChatEntry[]): ChatEntry[] => {
+      const byServerId = new Map<number, ChatEntry>();
+
+      // 1. Seed from existing positive-ID server messages
+      for (const item of existingChat) {
+        if (typeof item.i === "number" && item.i > 0) {
+          byServerId.set(item.i, item);
+        }
+      }
+
+      // 2. Merge incoming /api/state positive-ID server messages
+      for (const item of incomingServerChat) {
+        if (typeof item.i === "number" && item.i > 0) {
+          byServerId.set(item.i, item);
+          confirmedChatMapRef.current.set(item.i, item);
+        }
+      }
+
+      // 3. Ensure all confirmed messages from /api/command are retained even if /api/state was stale
+      for (const [id, item] of confirmedChatMapRef.current.entries()) {
+        if (id > 0) {
+          byServerId.set(id, item);
+        }
+      }
+
+      const sortedServerEntries = Array.from(byServerId.values()).sort((a, b) => a.i - b.i);
+
+      // 4. Append any persistent local fallback entries (from network errors) and in-flight optimistic entries
+      const seenNegativeIds = new Set<number>();
+      const tailEntries: ChatEntry[] = [];
+
+      for (const item of [
+        ...localFallbackEntriesRef.current,
+        ...pendingOptimisticRef.current,
+      ]) {
+        if (!seenNegativeIds.has(item.i)) {
+          seenNegativeIds.add(item.i);
+          tailEntries.push(item);
+        }
+      }
+
+      return [...sortedServerEntries, ...tailEntries].slice(-80);
+    },
+    []
+  );
 
   useEffect(() => {
     ttsEnabledRef.current = ttsEnabled;
@@ -307,14 +361,26 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Auto-scroll chat container when new messages arrive
+  // Auto-scroll chat container when new messages arrive or update
+  const lastChatItemId = telemetry?.chat?.[telemetry.chat.length - 1]?.i ?? 0;
+  const chatLength = telemetry?.chat?.length ?? 0;
+
   useEffect(() => {
-    const currentLen = telemetry?.chat?.length || 0;
-    if (currentLen > prevChatCountRef.current) {
-      prevChatCountRef.current = currentLen;
-      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const sig = `${chatLength}:${lastChatItemId}`;
+    if (chatLength > 0 && sig !== prevChatSignatureRef.current) {
+      prevChatSignatureRef.current = sig;
+      const scrollToBottom = () => {
+        if (chatContainerRef.current) {
+          chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+        } else {
+          chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+      };
+      scrollToBottom();
+      const rafId = requestAnimationFrame(scrollToBottom);
+      return () => cancelAnimationFrame(rafId);
     }
-  }, [telemetry?.chat?.length]);
+  }, [chatLength, lastChatItemId]);
 
   // Live Clock
   useEffect(() => {
@@ -370,8 +436,9 @@ export default function App() {
     }
   }, []);
 
-  // Poll /api/state every 3 seconds
+  // Poll /api/state every 3 seconds with stale-response protection
   const fetchState = useCallback(async () => {
+    const epochAtPollStart = commandMutationEpochRef.current;
     try {
       const token = gmailTokenRef.current || (await getAccessToken());
       const headers: Record<string, string> = {};
@@ -381,14 +448,37 @@ export default function App() {
       const res = await fetch("/api/state", { cache: "no-store", headers });
       if (!res.ok) return;
       const data: HudTelemetryState = await res.json();
-      setTelemetry(data);
+
+      setTelemetry((prev) => {
+        const mergedChat = mergeChatEntries(prev?.chat || [], data.chat || []);
+        const isStalePoll = epochAtPollStart < commandMutationEpochRef.current;
+
+        if (isStalePoll && prev) {
+          return {
+            ...data,
+            state: prev.state,
+            note: prev.note,
+            last_tool: prev.last_tool,
+            last_you: prev.last_you,
+            t_think: prev.t_think,
+            tools: Math.max(prev.tools, data.tools),
+            chat: mergedChat,
+          };
+        }
+
+        return {
+          ...data,
+          chat: mergedChat,
+        };
+      });
+
       if (!selectedStock && data.stocks.length > 0) {
         setSelectedStock(data.stocks[0]);
       }
     } catch {
       // Ignore transient network poll errors
     }
-  }, [selectedStock]);
+  }, [mergeChatEntries, selectedStock]);
 
   // Sync Gmail Unread Messages explicitly with Bearer token
   const syncGmailInbox = useCallback(
@@ -478,7 +568,7 @@ export default function App() {
     return () => clearInterval(interval);
   }, [fetchState, fetchPackageAudit]);
 
-  // Execute voice or text command
+  // Execute voice or text command with immediate optimistic user message and immediate assistant reply rendering
   const executeCommand = useCallback(
     async (rawQuery: string, speechLatencyMs = 320) => {
       const trimmed = rawQuery.trim();
@@ -487,6 +577,63 @@ export default function App() {
       setIsSubmitting(true);
       setStage("thinking");
       setVoiceStatusNote(`Processing: "${trimmed}"`);
+
+      // 1. Immediately display the user's message in the conversation log (0ms optimistic update)
+      commandMutationEpochRef.current += 1;
+      const nowTime = new Date().toLocaleTimeString("en-GB", { hour12: false });
+      const tempUserId = -(Date.now() * 100 + Math.floor(Math.random() * 100));
+      const optimisticUserEntry: ChatEntry = {
+        i: tempUserId,
+        k: "you",
+        x: trimmed,
+        t: nowTime,
+        source: "LOCAL_DETERMINISTIC",
+      };
+
+      pendingOptimisticRef.current = [...pendingOptimisticRef.current, optimisticUserEntry];
+
+      setTelemetry((prev) => {
+        const base: HudTelemetryState = prev || {
+          state: "thinking",
+          note: `Processing: "${trimmed}"`,
+          mode: "NVIDIA MISTRAL + TOOLS",
+          model: "mistralai/mistral-large-4-1t-a52b",
+          t_rec: Number((speechLatencyMs / 1000).toFixed(2)),
+          t_think: 0.42,
+          last_tool: "Processing...",
+          tools: 0,
+          facts: 0,
+          mail_age: -1,
+          last_you: trimmed,
+          tool_active: true,
+          failover_active: false,
+          cooldown_remaining: 0,
+          volume: 75,
+          muted: false,
+          chat: [],
+          cards: [],
+          unread_emails: [],
+          stocks: [],
+          sys: {
+            cpu: 24,
+            ram: 48,
+            disk: 38,
+            free: 412,
+            bat: 96,
+            plug: true,
+            up: 0,
+            platform: "win32",
+          },
+        };
+
+        return {
+          ...base,
+          state: "thinking",
+          last_you: trimmed,
+          tool_active: true,
+          chat: mergeChatEntries(base.chat || [], []),
+        };
+      });
 
       try {
         const token = gmailTokenRef.current || (await getAccessToken());
@@ -503,33 +650,156 @@ export default function App() {
           body: JSON.stringify({ query: trimmed, speechLatencyMs }),
         });
 
-        const data = await res.json();
-        if (res.ok) {
-          setStage("speaking");
-          setVoiceStatusNote(data.reply);
-          if (data.media) {
-            setActiveMedia(data.media);
-          }
+        const data = await res.json().catch(() => ({}));
+        commandMutationEpochRef.current += 1;
+
+        // Remove the temporary optimistic entry now that the response has arrived
+        pendingOptimisticRef.current = pendingOptimisticRef.current.filter(
+          (item) => item.i !== tempUserId
+        );
+
+        const serverUserMsg: ChatEntry | undefined = data?.userMessage;
+        const serverAssistantMsg: ChatEntry | undefined = data?.message;
+
+        if (serverUserMsg && typeof serverUserMsg.i === "number" && serverUserMsg.i > 0) {
+          confirmedChatMapRef.current.set(serverUserMsg.i, serverUserMsg);
+        } else {
+          // Server did not return a userMessage (e.g. validation or pre-pipeline error): preserve user bubble locally
+          localFallbackEntriesRef.current = [
+            ...localFallbackEntriesRef.current,
+            optimisticUserEntry,
+          ];
+        }
+
+        let resolvedAssistantMsg: ChatEntry;
+        if (
+          serverAssistantMsg &&
+          typeof serverAssistantMsg.i === "number" &&
+          serverAssistantMsg.i > 0
+        ) {
+          confirmedChatMapRef.current.set(serverAssistantMsg.i, serverAssistantMsg);
+          resolvedAssistantMsg = serverAssistantMsg;
+        } else {
+          // Guarantee a clear assistant diagnostic reply in the conversation even if data.message was absent
+          const diagText =
+            data?.reply ||
+            (data?.error
+              ? `AI Service Diagnostic: ${data.error}`
+              : `Command failed (HTTP ${res.status}). Please check your NVIDIA API configuration and server logs.`);
+          const localDiagId = -(Date.now() * 100 + Math.floor(Math.random() * 100) + 1);
+          resolvedAssistantMsg = {
+            i: localDiagId,
+            k: "jarvis",
+            x: diagText,
+            t: new Date().toLocaleTimeString("en-GB", { hour12: false }),
+            source: "AI_SERVICE_ERROR",
+            execution: data?.execution || {
+              intent: "conversation",
+              tool: "ORNION Command Pipeline",
+              executed: false,
+              status: "ERROR",
+              evidence: data?.error || `HTTP ${res.status}`,
+              nextStep: "Verify NVIDIA_API_KEY in .env and retry your message.",
+            },
+          };
+          localFallbackEntriesRef.current = [
+            ...localFallbackEntriesRef.current,
+            resolvedAssistantMsg,
+          ];
+        }
+
+        const isErrorReply =
+          !res.ok ||
+          resolvedAssistantMsg.source === "AI_SERVICE_ERROR" ||
+          resolvedAssistantMsg.execution?.status === "ERROR";
+
+        setStage(isErrorReply ? "listening" : "speaking");
+        setVoiceStatusNote(resolvedAssistantMsg.x);
+
+        if (data?.media) {
+          setActiveMedia(data.media);
+        }
+
+        // 2. Immediately append the user message and assistant's data.message to telemetry.chat
+        setTelemetry((prev) => {
+          if (!prev) return prev;
+          const incomingBatch: ChatEntry[] = [];
+          if (serverUserMsg && serverUserMsg.i > 0) incomingBatch.push(serverUserMsg);
+          if (resolvedAssistantMsg.i > 0) incomingBatch.push(resolvedAssistantMsg);
+
+          return {
+            ...prev,
+            state: isErrorReply ? "listening" : "speaking",
+            note: isErrorReply
+              ? `ERROR: ${data?.toolName || "AI SERVICE"}`
+              : `LAST ACTION: ${(data?.toolName || "NVIDIA MISTRAL LARGE 4").toUpperCase()}`,
+            last_tool: data?.toolName || prev.last_tool,
+            last_you: trimmed,
+            t_think: typeof data?.t_think === "number" ? data.t_think : prev.t_think,
+            tools: prev.tools + 1,
+            tool_active: false,
+            chat: mergeChatEntries(prev.chat || [], incomingBatch),
+          };
+        });
+
+        if (res.ok && data?.reply) {
           speakText(data.reply);
-          await fetchState();
           setTimeout(() => {
             setStage((prev) => (prev === "speaking" ? "listening" : prev));
           }, 3200);
-        } else {
-          setStage("listening");
-          setVoiceStatusNote(data.error || `Command failed (HTTP ${res.status})`);
-          await fetchState();
         }
+
+        // Refresh full state in the background without blocking chat rendering
+        void fetchState();
       } catch (err: any) {
+        commandMutationEpochRef.current += 1;
+        pendingOptimisticRef.current = pendingOptimisticRef.current.filter(
+          (item) => item.i !== tempUserId
+        );
+
+        const netErrText = `AI Service Diagnostic: Unable to reach ORNION backend (${
+          err?.message || "network unreachable"
+        }). Ensure the local server is running on port 3000.`;
+        const localErrId = -(Date.now() * 100 + Math.floor(Math.random() * 100) + 2);
+        const fallbackAssistantEntry: ChatEntry = {
+          i: localErrId,
+          k: "jarvis",
+          x: netErrText,
+          t: new Date().toLocaleTimeString("en-GB", { hour12: false }),
+          source: "AI_SERVICE_ERROR",
+          execution: {
+            intent: "conversation",
+            tool: "ORNION Network Transport",
+            executed: false,
+            status: "ERROR",
+            evidence: err?.message || "Fetch request failed",
+            nextStep: "Verify 'npm run dev' is running and retry.",
+          },
+        };
+
+        localFallbackEntriesRef.current = [
+          ...localFallbackEntriesRef.current,
+          optimisticUserEntry,
+          fallbackAssistantEntry,
+        ];
+
         setStage("listening");
-        setVoiceStatusNote(
-          `Network error submitting command: ${err?.message || "unreachable"}`
+        setVoiceStatusNote(netErrText);
+        setTelemetry((prev) =>
+          prev
+            ? {
+                ...prev,
+                state: "listening",
+                tool_active: false,
+                chat: mergeChatEntries(prev.chat || [], []),
+              }
+            : prev
         );
       } finally {
         setIsSubmitting(false);
       }
     },
-    [fetchState, isSubmitting, speakText]
+    [fetchState, isSubmitting, mergeChatEntries, speakText]
   );
 
   // Start / Stop Real Microphone & Web Speech API Recognition
@@ -1136,7 +1406,10 @@ export default function App() {
                 </span>
               </div>
 
-              <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 max-h-[360px]">
+              <div
+                ref={chatContainerRef}
+                className="flex-1 overflow-y-auto space-y-2.5 pr-1 max-h-[360px]"
+              >
                 {(telemetry?.chat || []).map((m) => (
                   <div
                     key={m.i}
